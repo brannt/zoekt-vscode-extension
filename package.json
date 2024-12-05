@@ -11,14 +11,23 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
-  "keywords": ["code search", "zoekt", "vscode extension"],
+  "keywords": [
+    "code search",
+    "zoekt",
+    "vscode extension"
+  ],
   "author": "",
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onCommand:zoekt-code-search.index", "onCommand:zoekt-code-search.search"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:zoekt-code-search.index",
+    "onCommand:zoekt-code-search.search"
+  ],
   "contributes": {
     "commands": [
       {
@@ -29,11 +38,36 @@
         "command": "zoekt-code-search.search",
         "title": "Zoekt: Search Code"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Zoekt Code Search",
+      "properties": {
+        "zoektCodeSearch.indexOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically index workspace when files are saved"
+        },
+        "zoektCodeSearch.cronSchedule": {
+          "type": "string",
+          "default": "",
+          "description": "Cron schedule for automatic indexing (e.g., '0 * * * *' for hourly)"
+        },
+        "zoektCodeSearch.enablePerformanceMetrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collect and display performance metrics for indexing operations"
+        }
+      }
+    }
   },
   "devDependencies": {
     "@types/node": "^16.11.7",
+    "@types/node-cron": "^3.0.11",
     "@types/vscode": "^1.80.0",
     "typescript": "^5.1.3"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.2",
+    "performance-now": "^2.1.0"
   }
 }

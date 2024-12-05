@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { IndexService } from './services/indexService';
 import { SearchService } from './services/searchService';
 
+let indexService: IndexService | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     // Command to index the current workspace
     let indexCommand = vscode.commands.registerCommand('zoekt-code-search.index', async () => {
@@ -12,7 +14,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const indexService = new IndexService(workspaceRoot);
+        indexService = new IndexService(workspaceRoot);
 
         try {
             await indexService.indexWorkspace();
@@ -44,5 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-    // Clean up resources if needed
+    if (indexService) {
+        indexService.dispose();
+    }
 }
