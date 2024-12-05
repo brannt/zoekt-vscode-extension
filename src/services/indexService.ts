@@ -9,12 +9,14 @@ export class IndexService {
     private readonly indexDirName = '.zoekt-index';
     private outputChannel: vscode.OutputChannel;
     private cronJob?: cron.ScheduledTask;
+    private statusBarItem: vscode.StatusBarItem;
     private isIndexing = false;
     private disposables: vscode.Disposable[] = [];
 
     constructor(private workspaceRoot: string) {
         this.ensureIndexDirectory();
         this.outputChannel = vscode.window.createOutputChannel('Zoekt Indexing');
+        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
         this.setupFileWatcher();
         this.setupCronJob();
     }
@@ -31,7 +33,7 @@ export class IndexService {
 
     private setupFileWatcher(): void {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*', false, false, false);
-        
+
         const debounceTimeout = 5000; // 5 seconds
         let timeoutId: NodeJS.Timeout;
 
@@ -78,20 +80,23 @@ export class IndexService {
         });
     }
 
-    public async indexWorkspace(): Promise<void> {
+    public async indexWorkspace(fromCommandPalette: boolean = false): Promise<void> {
         if (this.isIndexing) {
             this.outputChannel.appendLine('Indexing already in progress...');
             return;
         }
 
         this.isIndexing = true;
+        this.statusBarItem.text = '$(sync~spin) Indexing...';
+        this.statusBarItem.show();
+
         const startTime = now();
         let indexSize = 0;
 
         return new Promise((resolve, reject) => {
             this.outputChannel.clear();
             this.outputChannel.show();
-            
+
             const indexProcess = spawn('/Users/brannt/go/bin/zoekt-index', [
                 '-index', this.indexPath,
                 this.workspaceRoot
@@ -105,7 +110,9 @@ export class IndexService {
                 const message = data.toString();
                 if (message.includes('finished shard')) {
                     this.outputChannel.appendLine(message);
-                    vscode.window.showInformationMessage('Indexing completed successfully');
+                    if (fromCommandPalette) {
+                        vscode.window.showInformationMessage('Indexing completed successfully');
+                    }
                 } else {
                     this.outputChannel.appendLine(`Error: ${message}`);
                     vscode.window.showErrorMessage(`Indexing error: ${message}`);
@@ -114,13 +121,14 @@ export class IndexService {
 
             indexProcess.on('close', async (code) => {
                 this.isIndexing = false;
+                this.statusBarItem.hide();
                 const endTime = now();
                 const duration = (endTime - startTime) / 1000; // Convert to seconds
 
                 if (code === 0) {
                     // Get index size
                     indexSize = await this.getDirectorySize(this.indexPath);
-                    
+
                     const config = vscode.workspace.getConfiguration('zoektCodeSearch');
                     if (config.get<boolean>('enablePerformanceMetrics')) {
                         this.outputChannel.appendLine('\nPerformance Metrics:');
@@ -148,18 +156,18 @@ export class IndexService {
     private async getDirectorySize(dirPath: string): Promise<number> {
         let size = 0;
         const files = await fs.promises.readdir(dirPath);
-        
+
         for (const file of files) {
             const filePath = path.join(dirPath, file);
             const stats = await fs.promises.stat(filePath);
-            
+
             if (stats.isDirectory()) {
                 size += await this.getDirectorySize(filePath);
             } else {
                 size += stats.size;
             }
         }
-        
+
         return size;
     }
 
