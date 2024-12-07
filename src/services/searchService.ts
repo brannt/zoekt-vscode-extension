@@ -9,34 +9,35 @@ interface SearchResult {
 }
 
 export class SearchService {
-    private readonly indexDirName = '.zoekt-index';
     private outputChannel: vscode.OutputChannel;
 
-    constructor(private workspaceRoot: string) {
+    constructor(private workspaceRoots: string[], private indexDir: string) {
         this.outputChannel = vscode.window.createOutputChannel('Zoekt Search Results');
     }
 
     private get indexPath(): string {
-        return path.join(this.workspaceRoot, this.indexDirName);
+        return this.indexDir;
     }
 
-    private parseZoektOutput(output: string): SearchResult[] {
+    private async parseZoektOutput(output: string): Promise<SearchResult[]> {
         const results: SearchResult[] = [];
         const lines = output.split('\n');
 
         for (const line of lines) {
             if (!line.trim()) continue;
-
-            // Each result line is in format: "path/to/file.ext:lineNumber:content"
+            this.outputChannel.appendLine(`Processing line: ${line}`);
             const match = line.match(/^([^:]+):(\d+):(.*)$/);
             if (match) {
                 const [, filePath, lineNum, content] = match;
-                results.push({
-                    file: filePath,
-                    line: parseInt(lineNum),
-                    content: content.trim()
-                });
-                this.outputChannel.appendLine(`Found result - File: ${filePath}, Line: ${lineNum}, Content: ${content.trim()}`);
+                const fullPath = await this.resolveFullPath(filePath);
+                if (fullPath) {
+                    results.push({
+                        file: fullPath,
+                        line: parseInt(lineNum),
+                        content: content.trim()
+                    });
+                    this.outputChannel.appendLine(`Found result - ${fullPath}:${lineNum}, Content: ${content.trim()}`);
+                }
             }
         }
 
@@ -44,6 +45,15 @@ export class SearchService {
         return results;
     }
 
+    private async resolveFullPath(filePath: string): Promise<string | null> {
+        for (const root of this.workspaceRoots) {
+            const potentialPath = path.join(root, filePath);
+            if (await vscode.workspace.fs.stat(vscode.Uri.file(potentialPath))) {
+                return potentialPath;
+            }
+        }
+        return null;
+    }
     private async showSearchResults(results: SearchResult[]): Promise<void> {
         if (results.length === 0) {
             vscode.window.showInformationMessage('No results found');
@@ -64,26 +74,33 @@ export class SearchService {
         });
 
         if (selected) {
-            const filePath = path.join(this.workspaceRoot, selected.result.file);
-            const document = await vscode.workspace.openTextDocument(filePath);
-            const editor = await vscode.window.showTextDocument(document);
-            
-            // Go to the specific line
-            const position = new vscode.Position(selected.result.line - 1, 0);
-            editor.selection = new vscode.Selection(position, position);
-            editor.revealRange(
-                new vscode.Range(position, position),
-                vscode.TextEditorRevealType.InCenter
-            );
+            this.outputChannel.appendLine(`Opening file: ${selected.result.file} at line: ${selected.result.line}`);
+
+            try {
+                const document = await vscode.workspace.openTextDocument(selected.result.file);
+                const editor = await vscode.window.showTextDocument(document);
+
+                const position = new vscode.Position(selected.result.line - 1, 0);
+                editor.selection = new vscode.Selection(position, position);
+                editor.revealRange(
+                    new vscode.Range(position, position),
+                    vscode.TextEditorRevealType.InCenter
+                );
+            } catch (error) {
+                const errorMessage = (error instanceof Error) ? error.message : 'Unknown error';
+                vscode.window.showErrorMessage(`Failed to open file: ${errorMessage}`);
+                this.outputChannel.appendLine(`Error opening file: ${errorMessage}`);
+            }
         }
     }
+
 
     public async searchCode(query: string): Promise<void> {
         return new Promise((resolve, reject) => {
             let output = '';
-            
+
             // Show the search command being executed
-            const searchCommand = `${'/Users/brannt/go/bin/zoekt'} -index_dir "${this.indexPath}" "${query}"`;
+            const searchCommand = `${'/Users/brannt/go/bin/zoekt'} -r -index_dir "${this.indexPath}" "${query}"`;
             this.outputChannel.appendLine(`Executing: ${searchCommand}`);
             this.outputChannel.show();
 
@@ -98,15 +115,19 @@ export class SearchService {
             });
 
             searchProcess.stderr.on('data', (data) => {
-                const errorMessage = `Search error: ${data}`;
-                this.outputChannel.appendLine(errorMessage);
-                vscode.window.showErrorMessage(errorMessage);
+                const message = data.toString();
+                this.outputChannel.appendLine(`Search message: ${message}`);
+
+                // Check if the message contains error keywords
+                if (/error|failed/i.test(message)) {
+                    vscode.window.showErrorMessage(`Search error: ${message}`);
+                }
             });
 
             searchProcess.on('close', async (code) => {
                 this.outputChannel.appendLine(`Search process exited with code: ${code}`);
                 if (code === 0) {
-                    const results = this.parseZoektOutput(output);
+                    const results = await this.parseZoektOutput(output);
                     await this.showSearchResults(results);
                     resolve();
                 } else {

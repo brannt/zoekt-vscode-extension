@@ -13,7 +13,7 @@ export class IndexService {
     private isIndexing = false;
     private disposables: vscode.Disposable[] = [];
 
-    constructor(private workspaceRoot: string) {
+    constructor(private workspaceRoot: string, private indexDir: string) {
         this.ensureIndexDirectory();
         this.outputChannel = vscode.window.createOutputChannel('Zoekt Indexing');
         this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
@@ -22,17 +22,18 @@ export class IndexService {
     }
 
     private get indexPath(): string {
-        return path.join(this.workspaceRoot, this.indexDirName);
+        return this.indexDir;
     }
 
     private ensureIndexDirectory(): void {
+        // this.outputChannel.appendLine(`Ensuring index directory exists: ${this.indexPath}`);
         if (!fs.existsSync(this.indexPath)) {
-            fs.mkdirSync(this.indexPath);
+            fs.mkdirSync(this.indexPath, { recursive: true});
         }
     }
 
     private setupFileWatcher(): void {
-        const watcher = vscode.workspace.createFileSystemWatcher('**/*', false, false, false);
+        const watcher = vscode.workspace.createFileSystemWatcher('**/!(' + this.indexDirName + ')/**/*', false, false, false);
 
         const debounceTimeout = 5000; // 5 seconds
         let timeoutId: NodeJS.Timeout;
@@ -91,13 +92,16 @@ export class IndexService {
         this.statusBarItem.show();
 
         const startTime = now();
+        this.outputChannel.appendLine(`Starting indexing for workspace: ${this.workspaceRoot}`);
+        this.outputChannel.appendLine(`Using index directory: ${this.indexPath}`);
+        this.outputChannel.appendLine(`Executing zoekt command: /Users/brannt/go/bin/zoekt-git-index -index ${this.indexPath} ${this.workspaceRoot}`);
         let indexSize = 0;
 
         return new Promise((resolve, reject) => {
             this.outputChannel.clear();
             this.outputChannel.show();
 
-            const indexProcess = spawn('/Users/brannt/go/bin/zoekt-index', [
+            const indexProcess = spawn('/Users/brannt/go/bin/zoekt-git-index', [
                 '-index', this.indexPath,
                 this.workspaceRoot
             ]);
@@ -108,14 +112,14 @@ export class IndexService {
 
             indexProcess.stderr.on('data', (data) => {
                 const message = data.toString();
+                this.outputChannel.appendLine(message);
                 if (message.includes('finished shard')) {
-                    this.outputChannel.appendLine(message);
                     if (fromCommandPalette) {
-                        vscode.window.showInformationMessage('Indexing completed successfully');
+                        vscode.window.showInformationMessage(`Indexing ${this.workspaceRoot} completed successfully`);
                     }
-                } else {
-                    this.outputChannel.appendLine(`Error: ${message}`);
-                    vscode.window.showErrorMessage(`Indexing error: ${message}`);
+                }
+                if (/error|failed/i.test(message)) {
+                    vscode.window.showErrorMessage(`Search error while indexing ${this.workspaceRoot}: ${message}`);
                 }
             });
 

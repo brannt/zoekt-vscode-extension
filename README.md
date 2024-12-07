@@ -74,3 +74,8 @@ No additional configuration is required. Ensure Zoekt binaries are installed.
 ## License
 
 MIT License
+
+# TODO:
+
+- Search doesn't work properly for multi-root workspaces.
+- Add support for running zoekt-webserver.
